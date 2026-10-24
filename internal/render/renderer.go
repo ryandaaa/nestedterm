@@ -121,6 +121,8 @@ func (r *Renderer) Render(ws *workspace.Workspace, overlays OverlayState, out io
 		r.renderBanner(canvas, overlays.BannerMessage)
 	}
 
+	canvas.NormalizeWide()
+
 	// 5. Emit only what changed since the previous frame
 	return r.emit(canvas, cursorX, cursorY, cursorVisible, out)
 }

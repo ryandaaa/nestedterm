@@ -140,6 +140,39 @@ func TestSGRResetDoesNotRepeatDefaultColors(t *testing.T) {
 	}
 }
 
+func TestNormalizeWide(t *testing.T) {
+	c := NewCanvas(8, 1)
+	wide := func(x int, content string) {
+		c.SetCell(x, 0, RenderCell{Content: content, Width: 2})
+		c.SetCell(x+1, 0, RenderCell{Continuation: true})
+	}
+
+	wide(0, "漢") // intact pair
+	wide(2, "字") // lead survives, continuation overwritten
+	c.SetCell(3, 0, RenderCell{Content: "│", Width: 1})
+	wide(4, "語") // continuation survives, lead overwritten
+	c.SetCell(4, 0, RenderCell{Content: "│", Width: 1})
+	c.SetCell(7, 0, RenderCell{Content: "末", Width: 2}) // lead in last column
+
+	c.NormalizeWide()
+
+	if c.GetCell(0, 0).Content != "漢" || !c.GetCell(1, 0).Continuation {
+		t.Fatal("intact wide pair was damaged")
+	}
+	if got := c.GetCell(2, 0); got.Content != " " || got.Width != 1 {
+		t.Fatalf("lead without continuation not blanked: %+v", got)
+	}
+	if c.GetCell(3, 0).Content != "│" || c.GetCell(4, 0).Content != "│" {
+		t.Fatal("overlay cells must be preserved")
+	}
+	if c.GetCell(5, 0).Continuation {
+		t.Fatal("orphan continuation not cleared")
+	}
+	if got := c.GetCell(7, 0); got.Content != " " {
+		t.Fatalf("wide lead in last column not blanked: %+v", got)
+	}
+}
+
 func TestSGRStrikethrough(t *testing.T) {
 	plain := RenderCell{Content: "A", Width: 1}
 	struck := RenderCell{Content: "A", Width: 1, Attrs: AttrStrikethrough}
