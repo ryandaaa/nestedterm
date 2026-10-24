@@ -108,3 +108,35 @@ func TestAppKeyHandling(t *testing.T) {
 		t.Fatal("closing last pane should return exit == true")
 	}
 }
+
+func TestSendDoesNotBlockAfterStop(t *testing.T) {
+	a := NewApp(config.NewDefaultConfig())
+	for i := 0; i < cap(a.eventCh); i++ {
+		a.eventCh <- AppEvent{Type: EventKey}
+	}
+	close(a.stopCh)
+
+	done := make(chan struct{})
+	go func() {
+		a.send(AppEvent{Type: EventShutdown}) // channel is full; must return via stopCh
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("send blocked on a full eventCh after stopCh was closed")
+	}
+}
+
+func TestRedrawSignalsCoalesce(t *testing.T) {
+	a := NewApp(config.NewDefaultConfig())
+	for i := 0; i < 1000; i++ {
+		select {
+		case a.redrawCh <- struct{}{}:
+		default:
+		}
+	}
+	if got := len(a.redrawCh); got != 1 {
+		t.Fatalf("expected 1 pending redraw signal, got %d", got)
+	}
+}

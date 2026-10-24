@@ -8,8 +8,7 @@ import (
 type EventType int
 
 const (
-	EventRedraw EventType = iota
-	EventKey
+	EventKey EventType = iota
 	EventResize
 	EventShutdown
 	EventPrefixTimeout

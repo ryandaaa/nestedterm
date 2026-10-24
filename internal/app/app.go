@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -26,6 +27,7 @@ type App struct {
 	renderer    *render.Renderer
 	decoder     *keyboard.Decoder
 	eventCh     chan AppEvent
+	redrawCh    chan struct{} // coalesced "screen is dirty" signal from PTY readers
 	stopCh      chan struct{}
 	overlays    render.OverlayState
 	logger      *log.Logger
@@ -36,10 +38,11 @@ type App struct {
 func NewApp(cfg *config.Config) *App {
 	prefixByte := keyboard.ResolvePrefixByte(cfg.PrefixKey)
 	return &App{
-		cfg:     cfg,
-		decoder: keyboard.NewDecoder(prefixByte),
-		eventCh: make(chan AppEvent, 128),
-		stopCh:  make(chan struct{}),
+		cfg:      cfg,
+		decoder:  keyboard.NewDecoder(prefixByte),
+		eventCh:  make(chan AppEvent, 128),
+		redrawCh: make(chan struct{}, 1),
+		stopCh:   make(chan struct{}),
 		overlays: render.OverlayState{
 			HelpText: keyboard.BuildHelpLines(prefixByte),
 		},
@@ -83,8 +86,8 @@ func (a *App) Run() error {
 	totalRect := layout.Rect{X: 0, Y: 0, W: cols, H: rows}
 	onRedraw := func() {
 		select {
-		case a.eventCh <- AppEvent{Type: EventRedraw}:
-		default:
+		case a.redrawCh <- struct{}{}:
+		default: // a redraw is already pending
 		}
 	}
 
@@ -119,15 +122,15 @@ func (a *App) Run() error {
 				case unix.SIGWINCH:
 					newCols, newRows, szErr := term.GetSize(stdinFd)
 					if szErr == nil && newCols > 0 && newRows > 0 {
-						a.eventCh <- AppEvent{
+						a.send(AppEvent{
 							Type: EventResize,
 							Cols: newCols,
 							Rows: newRows,
-						}
+						})
 					}
 				case syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP:
 					a.log("Received signal %s, initiating shutdown", sig)
-					a.eventCh <- AppEvent{Type: EventShutdown}
+					a.send(AppEvent{Type: EventShutdown})
 				}
 			}
 		}
@@ -143,28 +146,79 @@ func (a *App) Run() error {
 	return a.eventLoop()
 }
 
-func (a *App) eventLoop() error {
-	ticker := time.NewTicker(25 * time.Millisecond) // ~40 FPS redraw coalesce limit
-	defer ticker.Stop()
+// minFrameInterval caps repaints at ~40 FPS.
+const minFrameInterval = 25 * time.Millisecond
 
-	dirty := false
+// send delivers ev to the main loop, giving up if the app is shutting down.
+func (a *App) send(ev AppEvent) {
+	select {
+	case a.eventCh <- ev:
+	case <-a.stopCh:
+	}
+}
+
+// countingWriter counts the bytes written through it.
+type countingWriter struct {
+	w io.Writer
+	n int
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += n
+	return n, err
+}
+
+func (a *App) eventLoop() error {
+	var (
+		lastRender time.Time
+		frameTimer = time.NewTimer(0)
+		timerC     <-chan time.Time // non-nil only while a deferred repaint is armed
+	)
+	if !frameTimer.Stop() {
+		<-frameTimer.C
+	}
+	defer frameTimer.Stop()
+
+	// paint renders a frame. Only a frame that actually wrote something uses up
+	// the frame budget, so a keypress that changes nothing on screen does not
+	// delay the shell's echo that follows it.
+	paint := func() {
+		w := countingWriter{w: os.Stdout}
+		_ = a.renderer.Render(a.workspace, a.overlays, &w)
+		if w.n > 0 {
+			lastRender = time.Now()
+		}
+	}
+	// markDirty repaints now if the last frame is old enough, otherwise defers
+	// to a one-shot timer. Nothing runs while idle.
+	markDirty := func() {
+		if timerC != nil {
+			return
+		}
+		wait := minFrameInterval - time.Since(lastRender)
+		if wait <= 0 {
+			paint()
+			return
+		}
+		frameTimer.Reset(wait)
+		timerC = frameTimer.C
+	}
 
 	for {
 		select {
 		case <-a.stopCh:
 			return nil
 
-		case <-ticker.C:
-			if dirty {
-				dirty = false
-				_ = a.renderer.Render(a.workspace, a.overlays, os.Stdout)
-			}
+		case <-timerC:
+			timerC = nil
+			paint()
+
+		case <-a.redrawCh:
+			markDirty()
 
 		case ev := <-a.eventCh:
 			switch ev.Type {
-			case EventRedraw:
-				dirty = true
-
 			case EventResize:
 				a.log("Terminal resized to %dx%d", ev.Cols, ev.Rows)
 				newRect := layout.Rect{X: 0, Y: 0, W: ev.Cols, H: ev.Rows}
@@ -174,7 +228,7 @@ func (a *App) eventLoop() error {
 				} else {
 					a.overlays.BannerMessage = ""
 				}
-				dirty = true
+				markDirty()
 
 			case EventShutdown:
 				a.log("Shutdown requested")
@@ -185,7 +239,7 @@ func (a *App) eventLoop() error {
 				if a.decoder.Mode == keyboard.ModePrefixPending {
 					a.decoder.ResetMode()
 					a.overlays.BannerMessage = ""
-					dirty = true
+					markDirty()
 				}
 
 			case EventKey:
@@ -196,7 +250,7 @@ func (a *App) eventLoop() error {
 						return nil
 					}
 				}
-				dirty = true
+				markDirty()
 			}
 		}
 	}
@@ -265,7 +319,7 @@ func (a *App) handleKeyEvent(ev keyboard.DecodeEvent) bool {
 			a.prefixTimer.Stop()
 		}
 		a.prefixTimer = time.AfterFunc(1500*time.Millisecond, func() {
-			a.eventCh <- AppEvent{Type: EventPrefixTimeout}
+			a.send(AppEvent{Type: EventPrefixTimeout})
 		})
 		return false
 
