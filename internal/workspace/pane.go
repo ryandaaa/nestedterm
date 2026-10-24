@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,12 @@ import (
 
 // PaneID represents a unique identifier for a pane.
 type PaneID string
+
+// inputQueueSize bounds the chunks of keyboard input queued for a pane's PTY.
+const inputQueueSize = 1024
+
+// ErrInputBacklog is returned by Pane.Write when the child is not draining its input.
+var ErrInputBacklog = errors.New("pane input backlog full")
 
 // Pane represents a single managed terminal pane.
 type Pane struct {
@@ -36,9 +43,43 @@ type Pane struct {
 
 	InScrollback bool
 	ScrollOffset int // 0 = at bottom (live view), > 0 = lines scrolled up
+
+	inputCh  chan []byte   // queued input; nil until startWriter
+	quit     chan struct{} // closed on Close to stop the writer goroutine
+	quitOnce sync.Once
 }
 
-// Write writes bytes into the pane's child PTY process.
+// startWriter starts the goroutine that feeds queued input to the PTY, so a
+// child that stops reading (e.g. during a large paste) cannot block the UI.
+func (p *Pane) startWriter() {
+	p.inputCh = make(chan []byte, inputQueueSize)
+	p.quit = make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-p.quit:
+				return
+			case data := <-p.inputCh:
+				p.mu.RLock()
+				session := p.Session
+				p.mu.RUnlock()
+				if session != nil {
+					_, _ = session.Write(data)
+				}
+			}
+		}
+	}()
+}
+
+// cachedCWD returns the last working directory recorded for the pane.
+func (p *Pane) cachedCWD() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.LastKnownCWD
+}
+
+// Write queues bytes for the pane's child PTY process. It never blocks; if the
+// child is not reading and the queue is full it returns ErrInputBacklog.
 func (p *Pane) Write(data []byte) (int, error) {
 	p.mu.RLock()
 	session := p.Session
@@ -47,7 +88,16 @@ func (p *Pane) Write(data []byte) (int, error) {
 	if session == nil {
 		return 0, fmt.Errorf("pane %s has no active session", p.ID)
 	}
-	return session.Write(data)
+	if p.inputCh == nil {
+		return session.Write(data)
+	}
+
+	select {
+	case p.inputCh <- append([]byte(nil), data...):
+		return len(data), nil
+	default:
+		return 0, ErrInputBacklog
+	}
 }
 
 // Resize updates the pane geometry and propagates dimensions to the emulator and PTY.
@@ -176,6 +226,12 @@ func (p *Pane) ResetScroll() {
 
 // Close gracefully terminates the pane session and closes resources.
 func (p *Pane) Close(gracePeriod time.Duration) error {
+	p.quitOnce.Do(func() {
+		if p.quit != nil {
+			close(p.quit)
+		}
+	})
+
 	p.mu.Lock()
 	p.Status = PaneClosing
 	sess := p.Session

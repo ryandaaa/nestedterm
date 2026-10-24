@@ -28,7 +28,10 @@ type Workspace struct {
 	DefaultShell  string
 	GraceInterval time.Duration
 	OnRedraw      func()
-	nextIndex     int
+	// OnPaneExit, if set, is called from the pane's I/O goroutine once its
+	// child process has ended. Set it before creating panes.
+	OnPaneExit func(PaneID)
+	nextIndex  int
 }
 
 // NewWorkspace creates a new Workspace instance.

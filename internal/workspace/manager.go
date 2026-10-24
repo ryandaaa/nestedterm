@@ -48,15 +48,28 @@ func (w *Workspace) CreateInitialPane(cwd string) (*Pane, error) {
 	w.Order = append(w.Order, id)
 	w.ActivePaneID = id
 
-	// Start PTY I/O pump
-	go pty.RunSessionIO(sess, emu, w.OnRedraw, func(code int) {
+	w.startIO(pane)
+
+	return pane, nil
+}
+
+// startIO starts the pane's input writer and PTY output pump. When the child
+// process ends, OnPaneExit is invoked so the owner can close the pane.
+func (w *Workspace) startIO(pane *Pane) {
+	pane.startWriter()
+	cwd := &cwdRefresher{pane: pane, redraw: w.OnRedraw}
+
+	go pty.RunSessionIO(pane.Session, pane.Terminal, cwd.output, func(code int) {
 		pane.mu.Lock()
 		pane.Status = PaneExited
 		pane.ExitCode = &code
 		pane.mu.Unlock()
-	})
 
-	return pane, nil
+		cwd.stop()
+		if w.OnPaneExit != nil {
+			w.OnPaneExit(pane.ID)
+		}
+	})
 }
 
 // CreatePane spawns a new pane inheritng the active pane's current working directory,
@@ -125,13 +138,7 @@ func (w *Workspace) CreatePane() (*Pane, error) {
 		}
 	}
 
-	// Start PTY I/O pump
-	go pty.RunSessionIO(sess, emu, w.OnRedraw, func(code int) {
-		pane.mu.Lock()
-		pane.Status = PaneExited
-		pane.ExitCode = &code
-		pane.mu.Unlock()
-	})
+	w.startIO(pane)
 
 	if w.OnRedraw != nil {
 		w.OnRedraw()

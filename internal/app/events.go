@@ -2,6 +2,7 @@ package app
 
 import (
 	"nestedterm/internal/keyboard"
+	"nestedterm/internal/workspace"
 )
 
 // EventType defines application event categories.
@@ -12,6 +13,7 @@ const (
 	EventResize
 	EventShutdown
 	EventPrefixTimeout
+	EventPaneExit
 )
 
 // AppEvent represents an event dispatched to the main application loop.
@@ -20,4 +22,5 @@ type AppEvent struct {
 	KeyEvents []keyboard.DecodeEvent
 	Cols      int
 	Rows      int
+	PaneID    workspace.PaneID // EventPaneExit: the pane whose process ended
 }

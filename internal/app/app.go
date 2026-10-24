@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -98,6 +99,9 @@ func (a *App) Run() error {
 		a.cfg.GraceInterval,
 		onRedraw,
 	)
+	a.workspace.OnPaneExit = func(id workspace.PaneID) {
+		a.send(AppEvent{Type: EventPaneExit, PaneID: id})
+	}
 	a.renderer = render.NewRenderer(cols, rows, a.cfg.BorderStyle)
 
 	// 6. Spawn initial pane in initial working directory
@@ -234,6 +238,18 @@ func (a *App) eventLoop() error {
 				a.log("Shutdown requested")
 				a.shutdown()
 				return nil
+
+			case EventPaneExit:
+				// The shell in this pane ended (e.g. `exit`): close the pane, and
+				// the whole app once no panes remain. ErrPaneNotFound means the
+				// user already closed it.
+				a.log("Process in %s exited", ev.PaneID)
+				empty, err := a.workspace.ClosePane(ev.PaneID)
+				if err == nil && empty {
+					a.shutdown()
+					return nil
+				}
+				markDirty()
 
 			case EventPrefixTimeout:
 				if a.decoder.Mode == keyboard.ModePrefixPending {
@@ -377,17 +393,24 @@ func (a *App) handleKeyEvent(ev keyboard.DecodeEvent) bool {
 
 	case keyboard.ActionSendPrefix:
 		if activePane != nil && len(ev.RawBytes) > 0 {
-			_, _ = activePane.Write(ev.RawBytes)
+			a.writeToPane(activePane, ev.RawBytes)
 		}
 
 	case keyboard.ActionNone:
 		// Normal keyboard input forwarded to active pane
 		if activePane != nil && len(ev.RawBytes) > 0 {
-			_, _ = activePane.Write(ev.RawBytes)
+			a.writeToPane(activePane, ev.RawBytes)
 		}
 	}
 
 	return false
+}
+
+// writeToPane forwards input to a pane and tells the user if it was dropped.
+func (a *App) writeToPane(p *workspace.Pane, data []byte) {
+	if _, err := p.Write(data); errors.Is(err, workspace.ErrInputBacklog) {
+		a.overlays.BannerMessage = "Cannot send input: pane is not responding"
+	}
 }
 
 func (a *App) shutdown() {
