@@ -2,6 +2,9 @@
 
 **NestedTerm** is a high-performance Linux terminal multiplexer written in Go featuring in-process virtual terminal emulation and automatic tiling.
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/101e42ec-93aa-4dc8-9687-d8d57d3191e7" />
+
+
 It runs directly inside your existing terminal window, transforming it into an automatically tiled workspace composed of multiple simultaneously visible, independently running terminal sessions.
 
 ```text
