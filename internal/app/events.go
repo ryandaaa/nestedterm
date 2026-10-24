@@ -12,6 +12,7 @@ const (
 	EventKey
 	EventResize
 	EventShutdown
+	EventPrefixTimeout
 )
 
 // AppEvent represents an event dispatched to the main application loop.

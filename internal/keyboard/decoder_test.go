@@ -125,3 +125,31 @@ func TestDecoderSplitReads(t *testing.T) {
 		t.Fatal("expected decoder to return to ModeNormal")
 	}
 }
+
+func TestDecoderAltDirectShortcuts(t *testing.T) {
+	dec := NewDecoder(0x00)
+
+	// Alt+n directly creates new pane without prefix
+	events := dec.Feed([]byte{0x1b, 'n'})
+	if len(events) != 1 || events[0].Action != ActionNewPane {
+		t.Fatalf("expected ActionNewPane for Alt+n, got %v", events)
+	}
+
+	// Alt+x closes pane
+	events = dec.Feed([]byte{0x1b, 'x'})
+	if len(events) != 1 || events[0].Action != ActionClosePane {
+		t.Fatalf("expected ActionClosePane for Alt+x, got %v", events)
+	}
+
+	// Alt+Left arrow (\033[1;3D)
+	events = dec.Feed([]byte("\033[1;3D"))
+	if len(events) != 1 || events[0].Action != ActionFocusLeft {
+		t.Fatalf("expected ActionFocusLeft for Alt+Left, got %v", events)
+	}
+
+	// Non-shortcut escape sequence (e.g. Esc alone or unknown escape)
+	events = dec.Feed([]byte("\033[200~"))
+	if len(events) != 1 || events[0].Action != ActionNone {
+		t.Fatalf("expected non-shortcut escape to pass through as ActionNone, got %v", events)
+	}
+}

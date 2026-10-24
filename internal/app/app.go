@@ -20,15 +20,16 @@ import (
 
 // App is the top-level application controller.
 type App struct {
-	cfg       *config.Config
-	restorer  *TerminalRestorer
-	workspace *workspace.Workspace
-	renderer  *render.Renderer
-	decoder   *keyboard.Decoder
-	eventCh   chan AppEvent
-	stopCh    chan struct{}
-	overlays  render.OverlayState
-	logger    *log.Logger
+	cfg         *config.Config
+	restorer    *TerminalRestorer
+	workspace   *workspace.Workspace
+	renderer    *render.Renderer
+	decoder     *keyboard.Decoder
+	eventCh     chan AppEvent
+	stopCh      chan struct{}
+	overlays    render.OverlayState
+	logger      *log.Logger
+	prefixTimer *time.Timer
 }
 
 // NewApp creates a new application controller.
@@ -180,6 +181,13 @@ func (a *App) eventLoop() error {
 				a.shutdown()
 				return nil
 
+			case EventPrefixTimeout:
+				if a.decoder.Mode == keyboard.ModePrefixPending {
+					a.decoder.ResetMode()
+					a.overlays.BannerMessage = ""
+					dirty = true
+				}
+
 			case EventKey:
 				for _, k := range ev.KeyEvents {
 					shouldExit := a.handleKeyEvent(k)
@@ -244,10 +252,21 @@ func (a *App) handleKeyEvent(ev keyboard.DecodeEvent) bool {
 		a.overlays.BannerMessage = ""
 	}
 
+	// Stop prefix timeout timer on key handling
+	if a.prefixTimer != nil && ev.Action != keyboard.ActionPrefixPending {
+		a.prefixTimer.Stop()
+	}
+
 	// 4. Action Dispatch
 	switch ev.Action {
 	case keyboard.ActionPrefixPending:
 		a.overlays.BannerMessage = fmt.Sprintf("[%s]", keyboard.PrefixDisplayName(a.decoder.PrefixByte))
+		if a.prefixTimer != nil {
+			a.prefixTimer.Stop()
+		}
+		a.prefixTimer = time.AfterFunc(1500*time.Millisecond, func() {
+			a.eventCh <- AppEvent{Type: EventPrefixTimeout}
+		})
 		return false
 
 	case keyboard.ActionNewPane:
@@ -318,6 +337,9 @@ func (a *App) handleKeyEvent(ev keyboard.DecodeEvent) bool {
 }
 
 func (a *App) shutdown() {
+	if a.prefixTimer != nil {
+		a.prefixTimer.Stop()
+	}
 	close(a.stopCh)
 	if a.workspace != nil {
 		a.workspace.CloseAll()
