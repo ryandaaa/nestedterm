@@ -206,7 +206,9 @@ func (w *Workspace) ClosePane(id PaneID) (empty bool, err error) {
 
 // CloseActivePane closes the currently active pane.
 func (w *Workspace) CloseActivePane() (empty bool, err error) {
+	w.mu.RLock()
 	activeID := w.ActivePaneID
+	w.mu.RUnlock()
 	if activeID == "" {
 		return true, nil
 	}

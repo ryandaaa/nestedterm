@@ -95,3 +95,37 @@ func TestPaneTitleFollowsCd(t *testing.T) {
 	}
 	t.Fatalf("pane cwd stayed %q, want %q", p.cachedCWD(), target)
 }
+
+func TestCloseActivePaneIsRaceFree(t *testing.T) {
+	ws := newTestWorkspace(t)
+	if _, err := ws.CreateInitialPane(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	defer ws.CloseAll()
+	for i := 0; i < 2; i++ {
+		if _, err := ws.CreatePane(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				ws.FocusNext() // writes ActivePaneID under the lock
+			}
+		}
+	}()
+	time.Sleep(20 * time.Millisecond) // let the writer run many unsynchronized-with-us iterations
+
+	if _, err := ws.CloseActivePane(); err != nil {
+		t.Fatal(err)
+	}
+	close(stop)
+	<-done
+}
