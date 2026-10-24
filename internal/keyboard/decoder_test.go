@@ -25,13 +25,31 @@ func TestDecoderPrefixShortcuts(t *testing.T) {
 
 	// Ctrl+Space followed by 'n' (New pane)
 	events := dec.Feed([]byte{0x00, 'n'})
-	if len(events) != 1 || events[0].Action != ActionNewPane {
-		t.Fatalf("expected ActionNewPane, got %v", events)
+	if len(events) != 2 || events[0].Action != ActionPrefixPending || events[1].Action != ActionNewPane {
+		t.Fatalf("expected [ActionPrefixPending, ActionNewPane], got %v", events)
+	}
+
+	// Ctrl+Space followed by 'N' (uppercase)
+	events = dec.Feed([]byte{0x00, 'N'})
+	if len(events) != 2 || events[1].Action != ActionNewPane {
+		t.Fatalf("expected ActionNewPane for 'N', got %v", events)
+	}
+
+	// Ctrl+Space followed by Ctrl+N (0x0e)
+	events = dec.Feed([]byte{0x00, 0x0e})
+	if len(events) != 2 || events[1].Action != ActionNewPane {
+		t.Fatalf("expected ActionNewPane for Ctrl+N, got %v", events)
+	}
+
+	// Ctrl+Space followed by 'c' (tmux alias)
+	events = dec.Feed([]byte{0x00, 'c'})
+	if len(events) != 2 || events[1].Action != ActionNewPane {
+		t.Fatalf("expected ActionNewPane for 'c', got %v", events)
 	}
 
 	// Ctrl+Space followed by 'x' (Close pane)
 	events = dec.Feed([]byte{0x00, 'x'})
-	if len(events) != 1 || events[0].Action != ActionClosePane {
+	if len(events) != 2 || events[1].Action != ActionClosePane {
 		t.Fatalf("expected ActionClosePane, got %v", events)
 	}
 
@@ -44,9 +62,19 @@ func TestDecoderPrefixShortcuts(t *testing.T) {
 	}
 	for b, expectedAction := range expectedDirs {
 		events = dec.Feed([]byte{0x00, b})
-		if len(events) != 1 || events[0].Action != expectedAction {
+		if len(events) != 2 || events[1].Action != expectedAction {
 			t.Fatalf("expected %v for %c, got %v", expectedAction, b, events)
 		}
+	}
+
+	// Arrow keys after prefix: \033[A, \033[B, \033[C, \033[D
+	events = dec.Feed([]byte{0x00, 0x1b, '[', 'A'})
+	if len(events) != 2 || events[1].Action != ActionFocusUp {
+		t.Fatalf("expected ActionFocusUp for Up Arrow, got %v", events)
+	}
+	events = dec.Feed([]byte{0x00, 0x1b, '[', 'D'})
+	if len(events) != 2 || events[1].Action != ActionFocusLeft {
+		t.Fatalf("expected ActionFocusLeft for Left Arrow, got %v", events)
 	}
 }
 
@@ -55,11 +83,11 @@ func TestDecoderDoublePrefix(t *testing.T) {
 
 	// Ctrl+Space sent twice should send literal 0x00
 	events := dec.Feed([]byte{0x00, 0x00})
-	if len(events) != 1 || events[0].Action != ActionSendPrefix {
+	if len(events) != 2 || events[1].Action != ActionSendPrefix {
 		t.Fatalf("expected ActionSendPrefix, got %v", events)
 	}
-	if !bytes.Equal(events[0].RawBytes, []byte{0x00}) {
-		t.Fatalf("expected literal prefix byte, got %v", events[0].RawBytes)
+	if !bytes.Equal(events[1].RawBytes, []byte{0x00}) {
+		t.Fatalf("expected literal prefix byte, got %v", events[1].RawBytes)
 	}
 }
 
@@ -68,27 +96,27 @@ func TestDecoderUnknownKeyAfterPrefix(t *testing.T) {
 
 	// Ctrl+Space followed by 'z' (unbound)
 	events := dec.Feed([]byte{0x00, 'z'})
-	if len(events) != 1 || events[0].Action != ActionNone {
+	if len(events) != 2 || events[1].Action != ActionNone {
 		t.Fatalf("expected ActionNone for unbound shortcut, got %v", events)
 	}
-	if !bytes.Equal(events[0].RawBytes, []byte{0x00, 'z'}) {
-		t.Fatalf("expected literal prefix + 'z', got %v", events[0].RawBytes)
+	if !bytes.Equal(events[1].RawBytes, []byte{0x00, 'z'}) {
+		t.Fatalf("expected literal prefix + 'z', got %v", events[1].RawBytes)
 	}
 }
 
 func TestDecoderSplitReads(t *testing.T) {
 	dec := NewDecoder(0x00)
 
-	// Chunk 1: prefix byte only
+	// Chunk 1: prefix byte only -> emits ActionPrefixPending
 	events1 := dec.Feed([]byte{0x00})
-	if len(events1) != 0 {
-		t.Fatalf("expected 0 events on prefix byte, got %d", len(events1))
+	if len(events1) != 1 || events1[0].Action != ActionPrefixPending {
+		t.Fatalf("expected ActionPrefixPending on prefix byte, got %v", events1)
 	}
 	if dec.Mode != ModePrefixPending {
 		t.Fatal("expected decoder to be in ModePrefixPending")
 	}
 
-	// Chunk 2: action byte 'n'
+	// Chunk 2: action byte 'n' -> emits ActionNewPane
 	events2 := dec.Feed([]byte{'n'})
 	if len(events2) != 1 || events2[0].Action != ActionNewPane {
 		t.Fatalf("expected ActionNewPane on split read, got %v", events2)

@@ -44,6 +44,9 @@ func (d *Decoder) Feed(data []byte) []DecodeEvent {
 			b := data[i]
 			if b == d.PrefixByte {
 				d.Mode = ModePrefixPending
+				events = append(events, DecodeEvent{
+					Action: ActionPrefixPending,
+				})
 				i++
 			} else {
 				// Accumulate ordinary bytes until next prefix or end of data
@@ -58,6 +61,29 @@ func (d *Decoder) Feed(data []byte) []DecodeEvent {
 			}
 
 		case ModePrefixPending:
+			// Check for ANSI arrow escape sequences (\033[A, \033[B, \033[C, \033[D)
+			if data[i] == 0x1b && i+2 < len(data) && data[i+1] == '[' {
+				d.Mode = ModeNormal
+				switch data[i+2] {
+				case 'A':
+					events = append(events, DecodeEvent{Action: ActionFocusUp})
+					i += 3
+					continue
+				case 'B':
+					events = append(events, DecodeEvent{Action: ActionFocusDown})
+					i += 3
+					continue
+				case 'C':
+					events = append(events, DecodeEvent{Action: ActionFocusRight})
+					i += 3
+					continue
+				case 'D':
+					events = append(events, DecodeEvent{Action: ActionFocusLeft})
+					i += 3
+					continue
+				}
+			}
+
 			b := data[i]
 			i++
 			if b == d.PrefixByte {
@@ -67,6 +93,8 @@ func (d *Decoder) Feed(data []byte) []DecodeEvent {
 					Action:   ActionSendPrefix,
 					RawBytes: []byte{d.PrefixByte},
 				})
+			} else if b == 0x1b { // Escape cancels prefix mode cleanly
+				d.Mode = ModeNormal
 			} else if act, ok := d.Bindings[b]; ok {
 				d.Mode = ModeNormal
 				events = append(events, DecodeEvent{

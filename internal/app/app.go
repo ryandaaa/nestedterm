@@ -239,13 +239,17 @@ func (a *App) handleKeyEvent(ev keyboard.DecodeEvent) bool {
 		return false
 	}
 
-	// Clear temporary banner on any key
-	if a.overlays.BannerMessage != "" {
+	// Clear temporary banner on any key unless entering prefix pending
+	if a.overlays.BannerMessage != "" && ev.Action != keyboard.ActionPrefixPending {
 		a.overlays.BannerMessage = ""
 	}
 
 	// 4. Action Dispatch
 	switch ev.Action {
+	case keyboard.ActionPrefixPending:
+		a.overlays.BannerMessage = fmt.Sprintf("[%s]", keyboard.PrefixDisplayName(a.decoder.PrefixByte))
+		return false
+
 	case keyboard.ActionNewPane:
 		p, err := a.workspace.CreatePane()
 		if err != nil {
