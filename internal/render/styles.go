@@ -1,9 +1,8 @@
 package render
 
 import (
-	"fmt"
 	"image/color"
-	"strings"
+	"strconv"
 )
 
 // ANSI sequence constants
@@ -19,40 +18,53 @@ const (
 	SeqShowCursor = "\033[?25h"
 	SeqHomeCursor = "\033[H"
 	SeqClearAll   = "\033[2J"
+	SeqSyncBegin  = "\033[?2026h"
+	SeqSyncEnd    = "\033[?2026l"
 )
 
 // SGRDiff generates minimal ANSI escape sequences needed to transition from prev to next style.
 func SGRDiff(prev, next RenderCell) string {
-	if stylesEqual(prev, next) {
-		return ""
-	}
+	return string(appendSGRDiff(nil, prev, next))
+}
 
-	var sb strings.Builder
+// appendSGRDiff appends the SGR transition from prev to next to dst.
+func appendSGRDiff(dst []byte, prev, next RenderCell) []byte {
+	if stylesEqual(prev, next) {
+		return dst
+	}
 
 	// If attributes were turned off, reset all and re-apply
 	if (prev.Attrs&^next.Attrs) != 0 || (prev.Fg != nil && next.Fg == nil) || (prev.Bg != nil && next.Bg == nil) {
-		sb.WriteString(SeqReset)
-		applyAttrs(&sb, next.Attrs)
-		applyColor(&sb, next.Fg, false)
-		applyColor(&sb, next.Bg, true)
-		return sb.String()
+		dst = append(dst, SeqReset...)
+		dst = appendAttrs(dst, next.Attrs)
+		dst = appendColor(dst, next.Fg, false)
+		dst = appendColor(dst, next.Bg, true)
+		return dst
 	}
 
-	// Apply new attributes
-	newAttrs := next.Attrs &^ prev.Attrs
-	applyAttrs(&sb, newAttrs)
-
-	// Apply foreground if changed
+	dst = appendAttrs(dst, next.Attrs&^prev.Attrs)
 	if !colorsEqual(prev.Fg, next.Fg) {
-		applyColor(&sb, next.Fg, false)
+		dst = appendColor(dst, next.Fg, false)
 	}
-
-	// Apply background if changed
 	if !colorsEqual(prev.Bg, next.Bg) {
-		applyColor(&sb, next.Bg, true)
+		dst = appendColor(dst, next.Bg, true)
 	}
+	return dst
+}
 
-	return sb.String()
+// cellsEqual reports whether two cells would paint identically.
+func cellsEqual(a, b *RenderCell) bool {
+	return a.Content == b.Content && a.Width == b.Width && a.Attrs == b.Attrs &&
+		a.Continuation == b.Continuation && colorsEqual(a.Fg, b.Fg) && colorsEqual(a.Bg, b.Bg)
+}
+
+// appendCursorTo appends a CUP sequence for the 0-indexed cell (x, y).
+func appendCursorTo(dst []byte, x, y int) []byte {
+	dst = append(dst, "\033["...)
+	dst = strconv.AppendInt(dst, int64(y+1), 10)
+	dst = append(dst, ';')
+	dst = strconv.AppendInt(dst, int64(x+1), 10)
+	return append(dst, 'H')
 }
 
 func stylesEqual(a, b RenderCell) bool {
@@ -71,45 +83,46 @@ func colorsEqual(a, b color.Color) bool {
 	return ar == br && ag == bg && ab == bb && aa == ba
 }
 
-func applyAttrs(sb *strings.Builder, attrs uint8) {
+func appendAttrs(dst []byte, attrs uint8) []byte {
 	if attrs&AttrBold != 0 {
-		sb.WriteString(SeqBold)
+		dst = append(dst, SeqBold...)
 	}
 	if attrs&AttrDim != 0 {
-		sb.WriteString(SeqDim)
+		dst = append(dst, SeqDim...)
 	}
 	if attrs&AttrItalic != 0 {
-		sb.WriteString(SeqItalic)
+		dst = append(dst, SeqItalic...)
 	}
 	if attrs&AttrUnderline != 0 {
-		sb.WriteString(SeqUnderline)
+		dst = append(dst, SeqUnderline...)
 	}
 	if attrs&AttrBlink != 0 {
-		sb.WriteString(SeqBlink)
+		dst = append(dst, SeqBlink...)
 	}
 	if attrs&AttrReverse != 0 {
-		sb.WriteString(SeqReverse)
+		dst = append(dst, SeqReverse...)
 	}
+	return dst
 }
 
-func applyColor(sb *strings.Builder, c color.Color, isBg bool) {
+func appendColor(dst []byte, c color.Color, isBg bool) []byte {
 	if c == nil {
 		if isBg {
-			sb.WriteString("\033[49m")
-		} else {
-			sb.WriteString("\033[39m")
+			return append(dst, "\033[49m"...)
 		}
-		return
+		return append(dst, "\033[39m"...)
 	}
 
 	r, g, b, _ := c.RGBA()
-	r8 := uint8(r >> 8)
-	g8 := uint8(g >> 8)
-	b8 := uint8(b >> 8)
-
-	prefix := 38
 	if isBg {
-		prefix = 48
+		dst = append(dst, "\033[48;2;"...)
+	} else {
+		dst = append(dst, "\033[38;2;"...)
 	}
-	sb.WriteString(fmt.Sprintf("\033[%d;2;%d;%d;%dm", prefix, r8, g8, b8))
+	dst = strconv.AppendUint(dst, uint64(r>>8), 10)
+	dst = append(dst, ';')
+	dst = strconv.AppendUint(dst, uint64(g>>8), 10)
+	dst = append(dst, ';')
+	dst = strconv.AppendUint(dst, uint64(b>>8), 10)
+	return append(dst, 'm')
 }

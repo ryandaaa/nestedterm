@@ -82,6 +82,13 @@ func NewCanvas(w, h int) *Canvas {
 	}
 }
 
+// Reset fills the canvas with blank cells, keeping its allocation.
+func (c *Canvas) Reset() {
+	for i := range c.Cells {
+		c.Cells[i] = BlankCell()
+	}
+}
+
 // SetCell puts a cell at (x, y) if within canvas bounds.
 func (c *Canvas) SetCell(x, y int, cell RenderCell) {
 	if x < 0 || x >= c.Width || y < 0 || y >= c.Height {
@@ -136,7 +143,7 @@ func (c *Canvas) DrawBorder(r layout.Rect, active bool, title string, chars Bord
 		return
 	}
 
-	borderColor := ColorInactiveBorder
+	var borderColor color.Color = ColorInactiveBorder
 	var borderAttrs uint8
 	if active {
 		borderColor = ColorActiveBorder

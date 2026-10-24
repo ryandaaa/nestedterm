@@ -57,6 +57,14 @@ type TerminalEmulator interface {
 	// ScrollbackCellAt returns the cell at the given scrollback line index (0 = oldest) and column x.
 	ScrollbackCellAt(lineIdx, x int) *TerminalCell
 
+	// ReadRow copies row y of the active screen into dst (one cell per element)
+	// under a single lock. Out-of-range cells are filled with blanks.
+	ReadRow(y int, dst []TerminalCell)
+
+	// ReadScrollbackRow copies scrollback line lineIdx (0 = oldest) into dst.
+	// Out-of-range cells are filled with blanks.
+	ReadScrollbackRow(lineIdx int, dst []TerminalCell)
+
 	// Close cleans up emulator resources.
 	Close() error
 }

@@ -24,7 +24,15 @@ type Renderer struct {
 	width       int
 	height      int
 	borderChars BorderChars
-	prevCanvas  *Canvas
+	canvas      *Canvas // scratch canvas composed each frame
+	prevCanvas  *Canvas // last frame written to the host terminal; nil forces a full repaint
+	rowBuf      []terminal.TerminalCell
+	out         []byte // reused frame buffer
+
+	cursorKnown   bool
+	lastCursorX   int
+	lastCursorY   int
+	lastCursorVis bool
 }
 
 // NewRenderer creates a new Renderer instance.
@@ -50,7 +58,13 @@ func NewRenderer(w, h int, borderStyle string) *Renderer {
 func (r *Renderer) Resize(w, h int) {
 	r.width = w
 	r.height = h
+	r.Invalidate()
+}
+
+// Invalidate forces the next Render to repaint every cell.
+func (r *Renderer) Invalidate() {
 	r.prevCanvas = nil
+	r.cursorKnown = false
 }
 
 // Render composites the current workspace state and writes ANSI sequences to out.
@@ -59,7 +73,12 @@ func (r *Renderer) Render(ws *workspace.Workspace, overlays OverlayState, out io
 		return nil
 	}
 
-	canvas := NewCanvas(r.width, r.height)
+	if r.canvas == nil || r.canvas.Width != r.width || r.canvas.Height != r.height {
+		r.canvas = NewCanvas(r.width, r.height)
+	} else {
+		r.canvas.Reset()
+	}
+	canvas := r.canvas
 	activePane := ws.GetActivePane()
 
 	// 1. Draw each pane
@@ -102,51 +121,94 @@ func (r *Renderer) Render(ws *workspace.Workspace, overlays OverlayState, out io
 		r.renderBanner(canvas, overlays.BannerMessage)
 	}
 
-	// 5. Emit ANSI sequence to outer terminal
-	var sb strings.Builder
-	// Move cursor to top-left and hide cursor during paint
-	sb.WriteString(SeqHideCursor)
-	sb.WriteString(SeqHomeCursor)
+	// 5. Emit only what changed since the previous frame
+	return r.emit(canvas, cursorX, cursorY, cursorVisible, out)
+}
 
-	var currentStyle RenderCell
+// emit diffs canvas against the previous frame and writes the minimal update to out.
+func (r *Renderer) emit(canvas *Canvas, cursorX, cursorY int, cursorVisible bool, out io.Writer) error {
+	prev := r.prevCanvas
+	if prev != nil && (prev.Width != canvas.Width || prev.Height != canvas.Height) {
+		prev = nil
+	}
+
+	buf := r.out[:0]
+	var curStyle RenderCell
+	curX, curY := -1, -1
+	changed := false
+
 	for y := 0; y < canvas.Height; y++ {
-		for x := 0; x < canvas.Width; x++ {
-			c := canvas.GetCell(x, y)
+		row := canvas.Cells[y*canvas.Width : (y+1)*canvas.Width]
+		var prevRow []RenderCell
+		if prev != nil {
+			prevRow = prev.Cells[y*canvas.Width : (y+1)*canvas.Width]
+		}
+		for x := range row {
+			c := &row[x]
 			if c.Continuation {
 				continue
 			}
-
-			// Apply style diff
-			diff := SGRDiff(currentStyle, c)
-			if diff != "" {
-				sb.WriteString(diff)
-				currentStyle = c
+			if prevRow != nil && cellsEqual(c, &prevRow[x]) {
+				continue
 			}
+
+			if !changed {
+				changed = true
+				buf = append(buf, SeqSyncBegin...)
+				buf = append(buf, SeqHideCursor...)
+				buf = append(buf, SeqReset...)
+			}
+			if curX != x || curY != y {
+				buf = appendCursorTo(buf, x, y)
+			}
+			buf = appendSGRDiff(buf, curStyle, *c)
+			curStyle = *c
 
 			if c.Content != "" {
-				sb.WriteString(c.Content)
+				buf = append(buf, c.Content...)
 			} else {
-				sb.WriteString(" ")
+				buf = append(buf, ' ')
+			}
+			curY = y
+			curX = x + 1
+			if c.Width == 2 {
+				curX = x + 2
 			}
 		}
-		if y < canvas.Height-1 {
-			sb.WriteString("\r\n")
+	}
+
+	if changed {
+		buf = append(buf, SeqReset...)
+	}
+
+	cursorMoved := !r.cursorKnown || cursorVisible != r.lastCursorVis ||
+		(cursorVisible && (cursorX != r.lastCursorX || cursorY != r.lastCursorY))
+	if changed || cursorMoved {
+		if cursorVisible && cursorX >= 0 && cursorY >= 0 {
+			buf = appendCursorTo(buf, cursorX, cursorY)
+			buf = append(buf, SeqShowCursor...)
+		} else {
+			buf = append(buf, SeqHideCursor...)
+		}
+		if changed {
+			buf = append(buf, SeqSyncEnd...)
 		}
 	}
+	r.cursorKnown = true
+	r.lastCursorX, r.lastCursorY, r.lastCursorVis = cursorX, cursorY, cursorVisible
 
-	// Reset styling at end
-	sb.WriteString(SeqReset)
-
-	// Position and show physical cursor
-	if cursorVisible && cursorX >= 0 && cursorY >= 0 {
-		sb.WriteString(fmt.Sprintf("\033[%d;%dH", cursorY+1, cursorX+1))
-		sb.WriteString(SeqShowCursor)
+	// Swap buffers: the frame just composed becomes the baseline.
+	if r.prevCanvas != nil && r.prevCanvas.Width == canvas.Width && r.prevCanvas.Height == canvas.Height {
+		r.canvas, r.prevCanvas = r.prevCanvas, canvas
 	} else {
-		sb.WriteString(SeqHideCursor)
+		r.canvas, r.prevCanvas = nil, canvas
 	}
+	r.out = buf
 
-	r.prevCanvas = canvas
-	_, err := out.Write([]byte(sb.String()))
+	if len(buf) == 0 {
+		return nil
+	}
+	_, err := out.Write(buf)
 	return err
 }
 
@@ -160,6 +222,11 @@ func (r *Renderer) renderPaneContent(canvas *Canvas, p *workspace.Pane) {
 		return
 	}
 
+	if cap(r.rowBuf) < inner.W {
+		r.rowBuf = make([]terminal.TerminalCell, inner.W)
+	}
+	row := r.rowBuf[:inner.W]
+
 	if p.InScrollback && p.ScrollOffset > 0 {
 		// Render from scrollback history
 		histLen := p.Terminal.ScrollbackLen()
@@ -167,33 +234,34 @@ func (r *Renderer) renderPaneContent(canvas *Canvas, p *workspace.Pane) {
 		targetEnd := totalRows - p.ScrollOffset
 		targetStart := targetEnd - inner.H
 
-		for row := 0; row < inner.H; row++ {
-			absRow := targetStart + row
-			for col := 0; col < inner.W; col++ {
-				var tc *terminal.TerminalCell
-				if absRow < histLen {
-					tc = p.Terminal.ScrollbackCellAt(absRow, col)
-				} else {
-					tc = p.Terminal.CellAt(col, absRow-histLen)
-				}
-				drawTerminalCell(canvas, inner.X+col, inner.Y+row, tc)
+		for y := 0; y < inner.H; y++ {
+			absRow := targetStart + y
+			if absRow < histLen {
+				p.Terminal.ReadScrollbackRow(absRow, row)
+			} else {
+				p.Terminal.ReadRow(absRow-histLen, row)
+			}
+			for col := range row {
+				drawTerminalCell(canvas, inner.X+col, inner.Y+y, &row[col])
 			}
 		}
-	} else {
-		// Render live screen
-		for row := 0; row < inner.H; row++ {
-			for col := 0; col < inner.W; col++ {
-				tc := p.Terminal.CellAt(col, row)
-				drawTerminalCell(canvas, inner.X+col, inner.Y+row, tc)
-				if tc != nil && tc.Width == 2 && col+1 < inner.W {
-					// Mark next column as wide continuation
-					canvas.SetCell(inner.X+col+1, inner.Y+row, RenderCell{
-						Continuation: true,
-						Fg:           tc.Fg,
-						Bg:           tc.Bg,
-					})
-					col++
-				}
+		return
+	}
+
+	// Render live screen
+	for y := 0; y < inner.H; y++ {
+		p.Terminal.ReadRow(y, row)
+		for col := 0; col < len(row); col++ {
+			tc := &row[col]
+			drawTerminalCell(canvas, inner.X+col, inner.Y+y, tc)
+			if tc.Width == 2 && col+1 < len(row) {
+				// Mark next column as wide continuation
+				canvas.SetCell(inner.X+col+1, inner.Y+y, RenderCell{
+					Continuation: true,
+					Fg:           tc.Fg,
+					Bg:           tc.Bg,
+				})
+				col++
 			}
 		}
 	}

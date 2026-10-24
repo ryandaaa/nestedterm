@@ -113,6 +113,39 @@ func (a *VTAdapter) ScrollbackCellAt(lineIdx, x int) *TerminalCell {
 	return convertUVCell(line.At(x))
 }
 
+// ReadRow copies row y of the active screen into dst under a single read lock.
+func (a *VTAdapter) ReadRow(y int, dst []TerminalCell) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	w, h := a.term.Width(), a.term.Height()
+	for x := range dst {
+		if x >= w || y < 0 || y >= h {
+			dst[x] = blankTerminalCell
+			continue
+		}
+		fillTerminalCell(&dst[x], a.term.CellAt(x, y))
+	}
+}
+
+// ReadScrollbackRow copies scrollback line lineIdx into dst under a single read lock.
+func (a *VTAdapter) ReadScrollbackRow(lineIdx int, dst []TerminalCell) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	var line uv.Line
+	if lineIdx >= 0 && lineIdx < a.term.ScrollbackLen() {
+		line = a.term.ScrollbackLine(lineIdx)
+	}
+	for x := range dst {
+		if line == nil || x >= len(line) {
+			dst[x] = blankTerminalCell
+			continue
+		}
+		fillTerminalCell(&dst[x], line.At(x))
+	}
+}
+
 // Close cleans up emulator resources.
 func (a *VTAdapter) Close() error {
 	a.mu.Lock()
@@ -120,9 +153,18 @@ func (a *VTAdapter) Close() error {
 	return a.term.Close()
 }
 
+var blankTerminalCell = TerminalCell{Content: " ", Width: 1}
+
 func convertUVCell(c *uv.Cell) *TerminalCell {
+	out := new(TerminalCell)
+	fillTerminalCell(out, c)
+	return out
+}
+
+func fillTerminalCell(out *TerminalCell, c *uv.Cell) {
 	if c == nil {
-		return &TerminalCell{Content: " ", Width: 1}
+		*out = blankTerminalCell
+		return
 	}
 
 	content := c.Content
@@ -155,7 +197,7 @@ func convertUVCell(c *uv.Cell) *TerminalCell {
 		attrs |= AttrUnderline
 	}
 
-	return &TerminalCell{
+	*out = TerminalCell{
 		Content: content,
 		Width:   width,
 		Fg:      c.Style.Fg,
