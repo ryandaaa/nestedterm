@@ -1,5 +1,6 @@
 /nestedterm
 *.log
+/dist/
 /npm/dist/
 /npm/README.md
 /npm/LICENSE

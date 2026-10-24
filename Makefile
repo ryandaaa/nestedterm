@@ -5,7 +5,7 @@ CMD_DIR := ./cmd/nestedterm
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: all build test test-race vet fmt clean install uninstall npm-build npm-check npm-pack
+.PHONY: all build test test-race vet fmt clean install uninstall npm-build npm-check npm-pack dist
 
 all: build
 
@@ -55,3 +55,12 @@ npm-build: npm-check
 
 npm-pack: npm-build
 	cd npm && npm pack
+
+# --- release assets (uploaded to GitHub Releases, consumed by install.sh) ---
+
+dist:
+	rm -rf dist
+	mkdir -p dist
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/$(BINARY_NAME)-linux-amd64 $(CMD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/$(BINARY_NAME)-linux-arm64 $(CMD_DIR)
+	cd dist && sha256sum $(BINARY_NAME)-linux-amd64 $(BINARY_NAME)-linux-arm64 > SHA256SUMS

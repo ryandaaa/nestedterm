@@ -120,6 +120,14 @@ Flags:
 
 ## Build and Installation
 
+### Quick install (prebuilt binary)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ryandaaa/nestedterm/main/install.sh | sh
+```
+
+Installs the latest release for Linux x86_64 or aarch64 into `~/.local/bin` after verifying its SHA-256 checksum. Options: `NESTEDTERM_VERSION=0.1.0` to pin a version, `PREFIX=/usr/local` to change the location (needs write access), and `sh install.sh --uninstall` to remove it. If you prefer to read the script before running it, download `install.sh` first.
+
 ### Install from npm
 
 ```bash
