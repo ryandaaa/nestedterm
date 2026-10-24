@@ -120,6 +120,15 @@ Flags:
 
 ## Build and Installation
 
+### Install from npm
+
+```bash
+npm install -g nestedterm
+nestedterm
+```
+
+The package bundles prebuilt Linux binaries (x64 and arm64) and needs Node.js 16+ only to launch them. It does not run on other operating systems.
+
 ### Prerequisites
 
 - Linux (Debian 12/13 or compatible distribution)

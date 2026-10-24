@@ -1,2 +1,6 @@
-nestedterm
+/nestedterm
 *.log
+/npm/dist/
+/npm/README.md
+/npm/LICENSE
+/npm/*.tgz

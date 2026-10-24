@@ -1,0 +1,21 @@
+{
+  "name": "nestedterm",
+  "version": "0.1.0",
+  "description": "Linux terminal multiplexer with in-process terminal emulation and automatic tiling",
+  "license": "MIT",
+  "bin": {
+    "nestedterm": "bin/nestedterm.js"
+  },
+  "os": ["linux"],
+  "cpu": ["x64", "arm64"],
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": ["terminal", "multiplexer", "tmux", "tiling", "pty", "tui", "cli"]
+}
