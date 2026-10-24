@@ -45,12 +45,14 @@ var (
 )
 
 var (
-	ColorActiveBorder   = color.RGBA{R: 80, G: 220, B: 255, A: 255} // Vibrant cyan
-	ColorInactiveBorder = color.RGBA{R: 90, G: 95, B: 105, A: 255}  // Subtle slate gray
+	ColorActiveBorder   = color.RGBA{R: 64, G: 212, B: 244, A: 255} // Vibrant modern turquoise
+	ColorInactiveBorder = color.RGBA{R: 70, G: 75, B: 90, A: 255}   // Subtle slate
 	ColorTitleActive    = color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	ColorTitleInactive  = color.RGBA{R: 160, G: 165, B: 175, A: 255}
-	ColorOverlayBg      = color.RGBA{R: 24, G: 26, B: 32, A: 255}
-	ColorOverlayFg      = color.RGBA{R: 240, G: 240, B: 245, A: 255}
+	ColorTitleInactive  = color.RGBA{R: 140, G: 145, B: 160, A: 255}
+	ColorOverlayBg      = color.RGBA{R: 22, G: 24, B: 32, A: 255}   // Modern charcoal
+	ColorOverlayFg      = color.RGBA{R: 225, G: 230, B: 240, A: 255}
+	ColorKeyHighlight   = color.RGBA{R: 255, G: 210, B: 90, A: 255}  // Warm amber gold
+	ColorSectionHeader  = color.RGBA{R: 90, G: 210, B: 245, A: 255}  // Cool vibrant cyan
 )
 
 // Canvas represents a 2D grid of screen cells.
@@ -107,10 +109,15 @@ func (c *Canvas) Fill(r layout.Rect, cell RenderCell) {
 
 // DrawString draws a line of text starting at (x, y).
 func (c *Canvas) DrawString(x, y int, str string, fg, bg color.Color, attrs uint8) {
+	c.DrawStringClipped(x, y, str, fg, bg, attrs, c.Width)
+}
+
+// DrawStringClipped draws a line of text starting at (x, y), strictly bound by maxCol (exclusive).
+func (c *Canvas) DrawStringClipped(x, y int, str string, fg, bg color.Color, attrs uint8, maxCol int) {
 	runes := []rune(str)
 	for i, r := range runes {
 		col := x + i
-		if col >= c.Width {
+		if col >= c.Width || col >= maxCol {
 			break
 		}
 		c.SetCell(col, y, RenderCell{

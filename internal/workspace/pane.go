@@ -112,7 +112,7 @@ func (p *Pane) TitleDisplay() string {
 		statusExtra = fmt.Sprintf(" [SCROLL: +%d]", p.ScrollOffset)
 	}
 
-	return fmt.Sprintf(" %d: %s (%s)%s ", p.Index, shellName, dir, statusExtra)
+	return fmt.Sprintf(" [%d] %s │ %s%s ", p.Index, shellName, dir, statusExtra)
 }
 
 // EnterScrollback activates scrollback browsing mode.

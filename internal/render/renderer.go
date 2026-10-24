@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"image/color"
 	"io"
 	"strings"
 
@@ -217,11 +218,22 @@ func drawTerminalCell(canvas *Canvas, x, y int, tc *terminal.TerminalCell) {
 }
 
 func (r *Renderer) renderHelpOverlay(canvas *Canvas, helpLines []string) {
-	w := 54
-	h := len(helpLines) + 4
+	maxLineLen := 0
+	for _, line := range helpLines {
+		runes := []rune(line)
+		if len(runes) > maxLineLen {
+			maxLineLen = len(runes)
+		}
+	}
+
+	w := maxLineLen + 6
+	if w < 56 {
+		w = 56
+	}
 	if w > canvas.Width-4 {
 		w = canvas.Width - 4
 	}
+	h := len(helpLines) + 4
 	if h > canvas.Height-2 {
 		h = canvas.Height - 2
 	}
@@ -229,28 +241,48 @@ func (r *Renderer) renderHelpOverlay(canvas *Canvas, helpLines []string) {
 	y := (canvas.Height - h) / 2
 	box := layout.Rect{X: x, Y: y, W: w, H: h}
 
-	// Fill background
+	// 1. Solid modern dark background
 	canvas.Fill(box, RenderCell{
 		Content: " ",
 		Bg:      ColorOverlayBg,
 	})
-	// Draw border
+
+	// 2. Beautiful frame
 	canvas.DrawBorder(box, true, " NestedTerm Keybindings ", r.borderChars)
 
-	// Draw lines
+	// 3. Render content with strict clipping to right boundary
+	rightLimit := x + w - 2
 	for i, line := range helpLines {
-		if i >= h-3 {
+		row := y + 1 + i
+		if row >= y+h-2 {
 			break
 		}
-		canvas.DrawString(x+2, y+1+i, line, ColorOverlayFg, ColorOverlayBg, 0)
+
+		if strings.HasPrefix(line, "FAST ") || strings.HasPrefix(line, "PREFIX ") || strings.HasPrefix(line, "SCROLLBACK ") {
+			// Section Header: Bold Vibrant Cyan
+			canvas.DrawStringClipped(x+3, row, line, ColorSectionHeader, ColorOverlayBg, AttrBold, rightLimit)
+		} else if strings.HasPrefix(line, "  ") && len(line) > 18 {
+			// Two-column layout: Shortcut in Amber Gold, description in soft white
+			keyPart := line[:20]
+			descPart := line[20:]
+			canvas.DrawStringClipped(x+3, row, keyPart, ColorKeyHighlight, ColorOverlayBg, AttrBold, rightLimit)
+			canvas.DrawStringClipped(x+23, row, descPart, ColorOverlayFg, ColorOverlayBg, 0, rightLimit)
+		} else {
+			canvas.DrawStringClipped(x+3, row, line, ColorOverlayFg, ColorOverlayBg, 0, rightLimit)
+		}
 	}
 
-	footer := "Press any key to dismiss"
-	canvas.DrawString(x+(w-len(footer))/2, y+h-2, footer, ColorActiveBorder, ColorOverlayBg, AttrBold)
+	// 4. Centered Footer
+	footer := "Press any key or Esc to close"
+	footerX := x + (w-len(footer))/2
+	if footerX < x+2 {
+		footerX = x + 2
+	}
+	canvas.DrawStringClipped(footerX, y+h-2, footer, ColorActiveBorder, ColorOverlayBg, AttrBold, rightLimit)
 }
 
 func (r *Renderer) renderQuitConfirmOverlay(canvas *Canvas) {
-	w := 50
+	w := 54
 	h := 7
 	if w > canvas.Width-4 {
 		w = canvas.Width - 4
@@ -265,13 +297,14 @@ func (r *Renderer) renderQuitConfirmOverlay(canvas *Canvas) {
 	})
 	canvas.DrawBorder(box, true, " Confirm Quit ", r.borderChars)
 
-	msg1 := "Managed terminal sessions are still running."
+	msg1 := "Active terminal sessions are currently running."
 	msg2 := "Are you sure you want to terminate all and exit?"
-	msg3 := "[Y] Yes, kill all and quit    [N / Esc] Cancel"
+	msg3 := "[Y] Kill all and quit    [N / Esc] Cancel"
 
-	canvas.DrawString(x+3, y+2, msg1, ColorOverlayFg, ColorOverlayBg, AttrBold)
-	canvas.DrawString(x+3, y+3, msg2, ColorTitleInactive, ColorOverlayBg, 0)
-	canvas.DrawString(x+3, y+5, msg3, ColorActiveBorder, ColorOverlayBg, AttrBold)
+	rightLimit := x + w - 2
+	canvas.DrawStringClipped(x+4, y+2, msg1, ColorOverlayFg, ColorOverlayBg, AttrBold, rightLimit)
+	canvas.DrawStringClipped(x+4, y+3, msg2, ColorTitleInactive, ColorOverlayBg, 0, rightLimit)
+	canvas.DrawStringClipped(x+6, y+5, msg3, ColorKeyHighlight, ColorOverlayBg, AttrBold, rightLimit)
 }
 
 func (r *Renderer) renderBanner(canvas *Canvas, msg string) {
@@ -279,12 +312,25 @@ func (r *Renderer) renderBanner(canvas *Canvas, msg string) {
 		return
 	}
 	y := canvas.Height - 1
-	runes := []rune(msg)
+	trimmed := strings.TrimSpace(msg)
+	badge := fmt.Sprintf(" %s ", trimmed)
+	runes := []rune(badge)
 	lenMsg := len(runes)
-	if lenMsg > canvas.Width-4 {
-		lenMsg = canvas.Width - 4
+	if lenMsg > canvas.Width-2 {
+		lenMsg = canvas.Width - 2
 		runes = runes[:lenMsg]
 	}
-	x := canvas.Width - lenMsg - 2
-	canvas.DrawString(x, y, fmt.Sprintf(" %s ", string(runes)), ColorActiveBorder, ColorOverlayBg, AttrBold)
+	x := canvas.Width - lenMsg - 1
+
+	fg := ColorActiveBorder
+	bg := ColorOverlayBg
+	if strings.Contains(strings.ToLower(trimmed), "error") ||
+		strings.Contains(strings.ToLower(trimmed), "too small") ||
+		strings.Contains(strings.ToLower(trimmed), "cannot") {
+		fg = color.RGBA{R: 255, G: 110, B: 90, A: 255} // Alert coral red
+	} else if strings.HasPrefix(trimmed, "[") {
+		fg = ColorKeyHighlight // Warm amber gold for prefix badge
+	}
+
+	canvas.DrawString(x, y, string(runes), fg, bg, AttrBold)
 }

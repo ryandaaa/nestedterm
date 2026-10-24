@@ -114,3 +114,46 @@ func TestRendererWorkspace(t *testing.T) {
 		t.Fatal("expected quit confirm overlay in output")
 	}
 }
+
+func benchmarkRender(b *testing.B, cols, rows, panes int, steady bool) {
+	total := layout.Rect{X: 0, Y: 0, W: cols, H: rows}
+	ws := workspace.NewWorkspace(total, 4, "/bin/sh", 100*time.Millisecond, nil)
+	if _, err := ws.CreateInitialPane(b.TempDir()); err != nil {
+		b.Fatalf("CreateInitialPane failed: %v", err)
+	}
+	defer ws.CloseAll()
+	for i := 1; i < panes; i++ {
+		if _, err := ws.CreatePane(); err != nil {
+			b.Fatalf("CreatePane failed: %v", err)
+		}
+	}
+
+	var line strings.Builder
+	for i := 0; i < rows*2; i++ {
+		line.WriteString("\033[32mgreen \033[0mplain \033[1;31mbold red\033[0m the quick brown fox jumps over the lazy dog 0123456789\r\n")
+	}
+	for _, p := range ws.AllPanes() {
+		_, _ = p.Terminal.Write([]byte(line.String()))
+	}
+
+	renderer := NewRenderer(cols, rows, "single")
+	var buf bytes.Buffer
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		buf.Reset()
+		if !steady {
+			// simulate one changed line of output per frame
+			p := ws.GetActivePane()
+			_, _ = p.Terminal.Write([]byte("tick\r\n"))
+		}
+		if err := renderer.Render(ws, OverlayState{}, &buf); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ReportMetric(float64(buf.Len()), "bytes/frame")
+}
+
+func BenchmarkRender80x24Steady(b *testing.B)    { benchmarkRender(b, 80, 24, 1, true) }
+func BenchmarkRender200x50x4Steady(b *testing.B) { benchmarkRender(b, 200, 50, 4, true) }
+func BenchmarkRender200x50x4Active(b *testing.B) { benchmarkRender(b, 200, 50, 4, false) }
