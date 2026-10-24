@@ -35,6 +35,17 @@
   stty sane
   ```
 
+### 1.5 Colors look wrong or washed out
+- Colors from programs that use the 16/256-color palette (`ls --color`, `git diff`, ...) are passed to your terminal as palette indices, so they follow your terminal's theme.
+- Only true 24-bit colors and NestedTerm's own borders use RGB. If your terminal does not advertise truecolor (`COLORTERM=truecolor` or `24bit`, or a `TERM` containing `truecolor`/`-direct`), RGB is approximated with the nearest 256-color index. Over SSH `COLORTERM` is often not forwarded.
+- Force a mode with `NESTEDTERM_TRUECOLOR=1` (always 24-bit) or `NESTEDTERM_TRUECOLOR=0` (always 256-color).
+
+### 1.6 A pane disappeared / NestedTerm closed by itself
+- When the shell in a pane exits (e.g. `exit` or `Ctrl+D`), that pane is closed and the layout is rebalanced. When the last pane's shell exits, NestedTerm exits too, which closes the host terminal tab if it was launched as the terminal's command.
+
+### 1.7 "Cannot send input: pane is not responding"
+- Keyboard input is queued per pane (up to 1024 chunks). If the program in the pane stops reading input and the queue fills up, further input is dropped and this banner is shown instead of freezing the UI.
+
 ---
 
 ## 2. Working Directory Tracking
@@ -44,6 +55,7 @@ NestedTerm inspects the Linux kernel's `/proc/<pid>/cwd` symlink to track the re
 **Known Boundaries:**
 - If permissions on `/proc/<pid>` are restricted by restrictive container security profiles (e.g., AppArmor or seccomp blocking ptrace/proc readlink), NestedTerm falls back to the directory cached at shell startup.
 - Fast sub-shell directory switches that exit before the next check will not be captured.
+- The directory is re-read when the pane produces output (at most every 500ms, plus one trailing refresh), so the title follows `cd` when the shell redraws its prompt. A pane that is completely idle does no polling.
 
 ---
 
