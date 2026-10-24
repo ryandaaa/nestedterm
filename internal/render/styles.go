@@ -14,6 +14,7 @@ const (
 	SeqUnderline  = "\033[4m"
 	SeqBlink      = "\033[5m"
 	SeqReverse    = "\033[7m"
+	SeqStrike     = "\033[9m"
 	SeqHideCursor = "\033[?25l"
 	SeqShowCursor = "\033[?25h"
 	SeqHomeCursor = "\033[H"
@@ -101,6 +102,9 @@ func appendAttrs(dst []byte, attrs uint8) []byte {
 	}
 	if attrs&AttrReverse != 0 {
 		dst = append(dst, SeqReverse...)
+	}
+	if attrs&AttrStrikethrough != 0 {
+		dst = append(dst, SeqStrike...)
 	}
 	return dst
 }

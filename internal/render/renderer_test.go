@@ -62,6 +62,17 @@ func TestSGRDiff(t *testing.T) {
 	}
 }
 
+func TestSGRStrikethrough(t *testing.T) {
+	plain := RenderCell{Content: "A", Width: 1}
+	struck := RenderCell{Content: "A", Width: 1, Attrs: AttrStrikethrough}
+	if got := SGRDiff(plain, struck); got != SeqStrike {
+		t.Fatalf("got %q, want %q", got, SeqStrike)
+	}
+	if got := SGRDiff(struck, plain); !strings.HasPrefix(got, SeqReset) {
+		t.Fatalf("turning strikethrough off must reset, got %q", got)
+	}
+}
+
 func TestRendererWorkspace(t *testing.T) {
 	total := layout.Rect{X: 0, Y: 0, W: 80, H: 24}
 	ws := workspace.NewWorkspace(total, 4, "/bin/bash", 100*time.Millisecond, nil)
