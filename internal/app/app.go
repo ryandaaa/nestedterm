@@ -102,6 +102,7 @@ func (a *App) Run() error {
 	a.workspace.OnPaneExit = func(id workspace.PaneID) {
 		a.send(AppEvent{Type: EventPaneExit, PaneID: id})
 	}
+	render.SetTrueColor(render.DetectTrueColor())
 	a.renderer = render.NewRenderer(cols, rows, a.cfg.BorderStyle)
 
 	// 6. Spawn initial pane in initial working directory

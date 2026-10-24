@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"nestedterm/internal/layout"
 	"nestedterm/internal/terminal"
 	"nestedterm/internal/workspace"
@@ -59,6 +61,82 @@ func TestSGRDiff(t *testing.T) {
 	diffReset := SGRDiff(c2, c1)
 	if !strings.Contains(diffReset, SeqReset) {
 		t.Fatalf("expected reset sequence in diff, got %q", diffReset)
+	}
+}
+
+func TestSGRPaletteColorsKeepHostTheme(t *testing.T) {
+	plain := RenderCell{Content: "A", Width: 1}
+	cases := []struct {
+		name string
+		cell RenderCell
+		want string
+	}{
+		{"basic red fg", RenderCell{Content: "A", Width: 1, Fg: ansi.BasicColor(1)}, "\033[31m"},
+		{"bright green fg", RenderCell{Content: "A", Width: 1, Fg: ansi.BasicColor(10)}, "\033[92m"},
+		{"basic blue bg", RenderCell{Content: "A", Width: 1, Bg: ansi.BasicColor(4)}, "\033[44m"},
+		{"bright white bg", RenderCell{Content: "A", Width: 1, Bg: ansi.BasicColor(15)}, "\033[107m"},
+		{"indexed fg", RenderCell{Content: "A", Width: 1, Fg: ansi.IndexedColor(208)}, "\033[38;5;208m"},
+		{"indexed bg", RenderCell{Content: "A", Width: 1, Bg: ansi.IndexedColor(2)}, "\033[48;5;2m"},
+	}
+	for _, tc := range cases {
+		if got := SGRDiff(plain, tc.cell); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	// Same RGB value, different encoding: must not be considered equal.
+	palette := RenderCell{Content: "A", Width: 1, Fg: ansi.BasicColor(1)}
+	rgb := RenderCell{Content: "A", Width: 1, Fg: color.RGBA{R: 128, A: 255}}
+	if cellsEqual(&palette, &rgb) {
+		t.Fatal("palette red and RGB 128,0,0 compared equal; diff would skip a real change")
+	}
+	if got := SGRDiff(palette, rgb); got != "\033[38;2;128;0;0m" {
+		t.Fatalf("palette -> rgb transition: got %q", got)
+	}
+}
+
+func TestSGRWithoutTrueColor(t *testing.T) {
+	SetTrueColor(false)
+	defer SetTrueColor(true)
+
+	plain := RenderCell{Content: "A", Width: 1}
+	c := RenderCell{Content: "A", Width: 1, Fg: color.RGBA{R: 255, G: 135, B: 0, A: 255}}
+	got := SGRDiff(plain, c)
+	if strings.Contains(got, ";2;") || !strings.HasPrefix(got, "\033[38;5;") {
+		t.Fatalf("expected a 256-color sequence, got %q", got)
+	}
+}
+
+func TestDetectTrueColor(t *testing.T) {
+	for _, tc := range []struct {
+		colorterm, term, override string
+		want                      bool
+	}{
+		{"truecolor", "xterm", "", true},
+		{"24bit", "xterm", "", true},
+		{"", "xterm-direct", "", true},
+		{"", "xterm-256color", "", false},
+		{"", "xterm-256color", "1", true},
+		{"truecolor", "xterm", "0", false},
+	} {
+		t.Setenv("COLORTERM", tc.colorterm)
+		t.Setenv("TERM", tc.term)
+		t.Setenv("NESTEDTERM_TRUECOLOR", tc.override)
+		if got := DetectTrueColor(); got != tc.want {
+			t.Errorf("COLORTERM=%q TERM=%q override=%q: got %v, want %v", tc.colorterm, tc.term, tc.override, got, tc.want)
+		}
+	}
+}
+
+func TestSGRResetDoesNotRepeatDefaultColors(t *testing.T) {
+	bold := RenderCell{Content: "A", Width: 1, Attrs: AttrBold, Fg: ansi.BasicColor(1)}
+	plain := RenderCell{Content: "A", Width: 1}
+	if got := SGRDiff(bold, plain); got != SeqReset {
+		t.Fatalf("got %q, want a bare reset", got)
+	}
+	red := RenderCell{Content: "A", Width: 1, Fg: ansi.BasicColor(1)}
+	if got := SGRDiff(bold, red); got != SeqReset+"\033[31m" {
+		t.Fatalf("got %q, want reset then red only", got)
 	}
 }
 
