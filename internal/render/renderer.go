@@ -90,6 +90,7 @@ func (r *Renderer) Render(ws *workspace.Workspace, overlays OverlayState, out io
 
 		// Draw inner terminal content
 		r.renderPaneContent(canvas, p)
+		highlightSelection(canvas, p)
 	}
 
 	// 2. Cursor translation
@@ -231,18 +232,8 @@ func (r *Renderer) renderPaneContent(canvas *Canvas, p *workspace.Pane) {
 
 	if p.InScrollback && p.ScrollOffset > 0 {
 		// Render from scrollback history
-		histLen := p.Terminal.ScrollbackLen()
-		totalRows := histLen + inner.H
-		targetEnd := totalRows - p.ScrollOffset
-		targetStart := targetEnd - inner.H
-
 		for y := 0; y < inner.H; y++ {
-			absRow := targetStart + y
-			if absRow < histLen {
-				p.Terminal.ReadScrollbackRow(absRow, row)
-			} else {
-				p.Terminal.ReadRow(absRow-histLen, row)
-			}
+			p.ViewRow(y, row)
 			for col := range row {
 				drawTerminalCell(canvas, inner.X+col, inner.Y+y, &row[col])
 			}
@@ -403,4 +394,20 @@ func (r *Renderer) renderBanner(canvas *Canvas, msg string) {
 	}
 
 	canvas.DrawString(x, y, string(runes), fg, bg, AttrBold)
+}
+
+// highlightSelection inverts the cells of the pane's mouse selection.
+func highlightSelection(canvas *Canvas, p *workspace.Pane) {
+	inner := p.InnerRect
+	for y := 0; y < inner.H; y++ {
+		x0, x1, ok := p.SelectionSpan(y)
+		if !ok {
+			continue
+		}
+		for x := x0; x <= x1 && x < inner.W; x++ {
+			c := canvas.GetCell(inner.X+x, inner.Y+y)
+			c.Attrs ^= AttrReverse
+			canvas.SetCell(inner.X+x, inner.Y+y, c)
+		}
+	}
 }

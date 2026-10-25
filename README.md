@@ -79,8 +79,9 @@ NestedTerm opens with a single full-screen pane running your interactive shell.
    - `Ctrl+Space k` (up)
    - `Ctrl+Space l` (right)
 4. **Inspect Scrollback:** Press `Ctrl+Space` then `[` on any pane. Use `Up`/`Down` or `k`/`j` to inspect history. Press `q` to return to live terminal view.
-5. **Close a Pane:** Press `Ctrl+Space` then `x`. The pane process is terminated and remaining panes rebalance automatically.
-6. **Exit Workspace:** Press `Ctrl+Space` then `q`. If sessions are still active, confirm with `y`. All child sessions terminate cleanly and your host terminal is restored.
+5. **Select & Copy with the Mouse:** Click a pane to focus it, or drag inside a pane to select text. The selection stays within that pane (it never spills into neighbouring panes) and is copied to the system clipboard on release. The wheel scrolls the pane under the pointer. To use your terminal's own selection instead, hold `Shift` while dragging.
+6. **Close a Pane:** Press `Ctrl+Space` then `x`. The pane process is terminated and remaining panes rebalance automatically.
+7. **Exit Workspace:** Press `Ctrl+Space` then `q`. If sessions are still active, confirm with `y`. All child sessions terminate cleanly and your host terminal is restored.
 
 ---
 

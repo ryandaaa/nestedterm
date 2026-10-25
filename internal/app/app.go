@@ -33,6 +33,7 @@ type App struct {
 	overlays    render.OverlayState
 	logger      *log.Logger
 	prefixTimer *time.Timer
+	dragPane    workspace.PaneID // pane receiving an in-progress mouse drag
 }
 
 // NewApp creates a new application controller.
@@ -227,6 +228,7 @@ func (a *App) eventLoop() error {
 			case EventResize:
 				a.log("Terminal resized to %dx%d", ev.Cols, ev.Rows)
 				newRect := layout.Rect{X: 0, Y: 0, W: ev.Cols, H: ev.Rows}
+				a.clearSelections()
 				a.renderer.Resize(ev.Cols, ev.Rows)
 				if err := a.workspace.Resize(newRect); err != nil {
 					a.overlays.BannerMessage = "Screen too small for layout"
@@ -259,7 +261,12 @@ func (a *App) eventLoop() error {
 					markDirty()
 				}
 
+			case EventMouse:
+				a.handleMouse(ev.Mouse)
+				markDirty()
+
 			case EventKey:
+				a.clearSelections()
 				for _, k := range ev.KeyEvents {
 					shouldExit := a.handleKeyEvent(k)
 					if shouldExit {

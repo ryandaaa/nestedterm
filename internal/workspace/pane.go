@@ -44,6 +44,8 @@ type Pane struct {
 	InScrollback bool
 	ScrollOffset int // 0 = at bottom (live view), > 0 = lines scrolled up
 
+	sel selection // mouse text selection; guarded by mu
+
 	inputCh  chan []byte   // queued input; nil until startWriter
 	quit     chan struct{} // closed on Close to stop the writer goroutine
 	quitOnce sync.Once

@@ -39,7 +39,20 @@ When in scrollback mode (entered with `Ctrl+Space [`), the active pane's border 
 
 ---
 
-## 3. Configuring Alternate Prefix Keys
+## 3. Mouse
+
+| Gesture | Action |
+|---|---|
+| Click | Focus the pane under the pointer |
+| Drag inside a pane | Select text within that pane only; copied to the clipboard on release (OSC 52, plus `wl-copy`/`xclip`/`xsel` when installed) |
+| Wheel | Scroll the pane under the pointer through its history |
+| `Shift` + drag | Bypass NestedTerm and use the host terminal's own selection |
+
+Any key press or resize clears the selection.
+
+---
+
+## 4. Configuring Alternate Prefix Keys
 
 If your terminal or workflow prefers a different prefix, you can configure it via CLI flags:
 

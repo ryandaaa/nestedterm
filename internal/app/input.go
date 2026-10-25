@@ -16,6 +16,7 @@ func StartInputReader(
 ) {
 	go func() {
 		buf := make([]byte, 512)
+		var mouse keyboard.MouseFilter
 		for {
 			select {
 			case <-stopCh:
@@ -25,7 +26,15 @@ func StartInputReader(
 
 			n, err := os.Stdin.Read(buf)
 			if n > 0 {
-				events := decoder.Feed(buf[:n])
+				data, mouseEvents := mouse.Feed(buf[:n])
+				for _, m := range mouseEvents {
+					select {
+					case eventCh <- AppEvent{Type: EventMouse, Mouse: m}:
+					case <-stopCh:
+						return
+					}
+				}
+				events := decoder.Feed(data)
 				if len(events) > 0 {
 					select {
 					case eventCh <- AppEvent{Type: EventKey, KeyEvents: events}:

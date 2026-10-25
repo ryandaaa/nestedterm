@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -128,4 +129,24 @@ func TestCloseActivePaneIsRaceFree(t *testing.T) {
 	}
 	close(stop)
 	<-done
+}
+
+func TestPaneSelectedTextStaysInPane(t *testing.T) {
+	ws := NewWorkspace(layout.Rect{W: 80, H: 24}, 4, "/bin/sh", 100*time.Millisecond, nil)
+	p, err := ws.CreateInitialPane(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.CloseAll()
+
+	_, _ = p.Terminal.Write([]byte("\x1b[2J\x1b[Hhello world\r\nsecond line"))
+	p.BeginSelection(6, 0)
+	p.ExtendSelection(5, 1)
+	if got := p.SelectedText(); got != "world\nsecond" {
+		t.Fatalf("SelectedText = %q", got)
+	}
+	p.ClearSelection()
+	if p.HasSelection() || p.SelectedText() != "" {
+		t.Fatal("selection should be cleared")
+	}
 }
