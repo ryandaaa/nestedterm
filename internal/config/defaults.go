@@ -11,5 +11,5 @@ const (
 	DefaultGraceInterval = 750 * time.Millisecond
 	DefaultPrefixKey     = "ctrl-space"
 	DefaultBorderStyle   = "rounded"
-	Version              = "0.1.0"
+	Version              = "0.1.1"
 )
